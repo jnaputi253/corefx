@@ -1,0 +1,50 @@
+parameters:
+  targetOS: ''
+  archGroup: ''
+  configuration: ''
+  helixQueues: ''
+  helixToken: $(BotAccount-dotnet-github-anon-kaonashi-bot-helix-token)
+  waitForCompletion: true
+  msbuildScript: ''
+  framework: ''
+
+steps:
+  - script: ${{ parameters.msbuildScript }}
+            src/upload-tests.proj
+            /t:CompressRuntimeDir
+            /p:TargetGroup=${{ parameters.framework }}
+            /p:ArchGroup=${{ parameters.archGroup }}
+            /p:ConfigurationGroup=${{ parameters.configuration }}
+            /p:TargetOS=${{ parameters.targetOS }}
+    displayName: Compress Runtime Directory
+  - script: ${{ parameters.msbuildScript }}
+            eng/sendtohelix.proj
+            /t:test
+            /p:ArchGroup=${{ parameters.archGroup }}
+            /p:ConfigurationGroup=${{ parameters.configuration }}
+            /p:OSGroup=${{ parameters.targetOS }}
+            /p:TargetGroup=${{ parameters.framework }}
+            /p:HelixTargetQueues=${{ parameters.helixQueues }}
+            /p:HelixBuild=$(Build.BuildNumber)
+            /p:HelixAccessToken=${{ parameters.helixToken }}
+            /v:normal
+            /bl:$(Build.SourcesDirectory)\helix.binlog
+    displayName: Send to Helix
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken) # We need to set this env var to publish helix results to Azure Dev Ops
+
+  - task: CopyFiles@2
+    displayName: Stage build logs
+    condition: succeededOrFailed()
+    inputs:
+      sourceFolder: $(Build.SourcesDirectory)
+      contents: '?(msbuild.*|binclash.log|init-tools.log|*.binlog)'
+      targetFolder: $(Build.ArtifactStagingDirectory)
+
+  - task: PublishBuildArtifacts@1
+    displayName: Publish build and test logs
+    condition: succeededOrFailed()
+    inputs:
+      pathToPublish: $(Build.ArtifactStagingDirectory)
+      artifactName: ${{ parameters.framework }}
+      artifactType: container
